@@ -30,6 +30,7 @@ TEMPERATURE = 0.6
 TOP_P = 0.95
 TOP_K = 20
 PRESENCE_PENALTY = 0.0
+REPETITION_PENALTY = 1.1
 ENABLE_THINKING = True
 
 META_DIR = "/mnt/c/data/0_danbooru_meta/"
@@ -257,7 +258,10 @@ async def caption_single(caption_item: CaptionItem, is_multiple_characters: bool
         presence_penalty=PRESENCE_PENALTY,
         extra_body={
             "top_k": TOP_K,
-            "chat_template_kwargs": {"enable_thinking": False} if not ENABLE_THINKING else None
+            "repetition_penalty": REPETITION_PENALTY,
+            "chat_template_kwargs": {
+                "enable_thinking": False if not ENABLE_THINKING else True,
+            }
         }, 
     )
     
@@ -392,5 +396,7 @@ if __name__ == "__main__":
     LONG_CAPTION = args.long_caption
     OUTPUT_FILE_SUFFIX = args.output_file_suffix
     BATCH_SIZE = args.batch_size
+    
+    logging.info(f"Starting bulk-caption-extended.py with config:\nMODEL_NAME: {MODEL_NAME}\nENABLE_THINKING: {ENABLE_THINKING}\nLOG_THINKING: {LOG_THINKING}\nCAPTION_ONLY_NSFW: {CAPTION_ONLY_NSFW}\nSKIP_ALREADY_LABELLED: {SKIP_ALREADY_LABELLED}\nLONG_CAPTION: {LONG_CAPTION}\nOUTPUT_FILE_SUFFIX: {OUTPUT_FILE_SUFFIX}\nBATCH_SIZE:{BATCH_SIZE}")
 
     asyncio.run(run_main())
