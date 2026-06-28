@@ -213,7 +213,7 @@ def process_image_for_vlm(img_path: Path, size_limit: int = 1280) -> str:
         
         return f"data:image/jpeg;base64,{img_str}"
 
-existing_filenames = {p.name for p in INPUT_DIR.rglob("*.txt")}
+existing_filenames = {p.name for p in Path(INPUT_DIR).rglob("*.txt")}
 
 def make_conversation(image_url: str, caption_item: CaptionItem):
     tags_content = caption_item["tags_str"]
@@ -322,7 +322,7 @@ async def run_main():
             output_file_name = f"{img_file.stem}{OUTPUT_FILE_SUFFIX}.txt"
 
             if SKIP_ALREADY_LABELLED and output_file_name in existing_filenames:
-                logging.info(f"Skipping {img_file.name} as already labelled.")
+                # logging.info(f"Skipping {img_file.name} as already labelled.")
                 continue
             if tags_file.exists():
                 with open(tags_file, "r", encoding="utf-8") as f:
