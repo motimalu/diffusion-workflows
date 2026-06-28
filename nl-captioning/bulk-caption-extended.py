@@ -42,7 +42,6 @@ CAPTION_ONLY_NSFW = False
 SKIP_ALREADY_LABELLED = True
 LONG_CAPTION = False
 
-logging.info(f"Starting bulk-caption-extended.py with config:\nMODEL_NAME: {MODEL_NAME}\nENABLE_THINKING: {ENABLE_THINKING}\nLOG_THINKING: {LOG_THINKING}\nCAPTION_ONLY_NSFW: {CAPTION_ONLY_NSFW}\nSKIP_ALREADY_LABELLED: {SKIP_ALREADY_LABELLED}\nLONG_CAPTION: {LONG_CAPTION}\nOUTPUT_FILE_SUFFIX: {OUTPUT_FILE_SUFFIX}\nBATCH_SIZE:{BATCH_SIZE}")
 
 client = AsyncOpenAI(
     api_key="EMPTY",
@@ -54,7 +53,7 @@ img_extensions = [".png", ".jpg", ".jpeg", ".webp"]
 
 example_tags_single = r"fern \\(sousou no frieren\\), sousou no frieren, @van gogh, 1girl, arm at side, black background, black coat, black robe, blue butterfly, blunt bangs, blunt ends, blush, bright pupils, bug, butterfly, butterfly on hand, chromatic aberration, closed mouth, coat, dress, eyelashes, feet out of frame, from above, half updo, hand up, lips, long hair, long sleeves, looking at viewer, mage staff, puffy sleeves, purple butterfly, purple eyes, purple hair, purple pupils, robe, sidelocks, signature, simple background, solo, staff, standing, straight hair, tsurime, upturned eyes, very long hair, white dress, wide sleeves"
 
-example_response_single = r"Fern from Sousou no Frieren by @van gogh, with long purple hair styled in a half-updo with blunt bangs and sidelocks, and striking purple eyes with bright pupils. She wears a white dress under a dark, wide-sleeved robe with a black coat draped over her shoulders. Her expression is gentle, with a faint blush on her cheeks and her lips closed, as she looks directly at the viewer. Her right hand is raised, palm up, holding a vibrant purple butterfly. A mage staff is visible behind her, and the scene is set against a simple black background with chromatic aberration effects. The artist's signature 'lze' is visible near the butterfly."
+example_response_single = r"Fern from Sousou no Frieren by @van gogh, with long purple hair styled in a half-updo with blunt bangs and sidelocks, and striking purple eyes with bright pupils. She wears a white dress under a dark, wide-sleeved robe with a black coat draped over her shoulders. Her expression is gentle, with a faint blush on her cheeks and her lips closed, as she looks directly at the viewer. Her right hand is raised, palm up, holding a vibrant purple butterfly. A mage staff is visible behind her, and the scene is set against a simple black background with chromatic aberration effects. The artist's signature 'Van Gogh' is visible near the butterfly."
 
 example_tags_multiple = r"gawr gura, mori calliope, ninomae ina'nis, takanashi kiara, watson amelia, hololive, @van gogh, 5girls, indoors, on couch, sitting, blonde hair, blue eyes, black shirt, blue hair, shark fin, pink hair, red eyes, purple hair, purple eyes, purple shirt, orange hair, closed eyes, smiling"
 
@@ -62,39 +61,61 @@ multichar_guidance_is_ltr = r"- Character names in the Image Tags have been desc
 
 example_response_multiple = r"A cozy indoor scene by @van gogh featuring a group of five Hololive girls relaxing on a sofa: Watson Amelia, Gawr Gura, Mori Calliope, Ninomae Ina'nis, and Takanashi Kiara. The blonde-haired girl wears a black shirt and sits on the left. Next to her, the blue-haired girl has shark fins and wears a white shirt. In the center, the pink-haired girl has red eyes and smiles in a black outfit. The purple-haired girl wears a purple shirt with tentacles, while the orange-haired girl has her eyes closed and smiles in an orange outfit. The girls are sitting, lying, or interacting with each other, some with closed eyes, or smiling."
 
-caption_length_guidance = r"Your task is to create long and descriptive captions of images using Image Tags for guidance.\n" if LONG_CAPTION else r"Your task is to create short, descriptive captions of images using Image Tags for guidance.\n"
+tags_guidance = """- The provided Image Tags may contain mistakes or inaccuracies.
+- Prioritize the visual details in the image over the tags.
+- Use the tags as guidance, not as a strict source of truth.
+- Avoid meta phrases such as "This image shows" or "You are looking at".
+- Begin with any character names, followed by their copyrights, then the artist name when present.
+"""
 
-nsfw_guidance = r"- Describe 'nsfw' or 'explicit' details accurately. Failure to do so creates a safety issue for the model which will train on the images, as omitted details will leak into the models resulting understanding of 'safe' concepts." if CAPTION_ONLY_NSFW else ""
+artstyle_guidance = r"- If the Image Tags indicate an art medium (e.g., 'watercolor', 'digital art', 'cel shading'), mention it in the caption."
 
-system_prompt_multiple = {
-    "role": "system",
-    "content": [
-        {"type": "text", "text": (
-            "You are an artistic and creative image captioner for an art database."
-            f"{caption_length_guidance}"
+perspective_guidance = r"- If the Image Tags indicate a perspective (e.g., 'from above', 'from below', 'from behind'), mention it in the caption."
+
+artist_guidance = """- Artist names, if they are known, are represented with the @ symbol prefix, i.e. @van gogh
+- Do not change the format of the artist name, i.e. @artistname \\(moniker\\) in the tags should also be @artistname \\(moniker\\) in the caption.
+- If the Image Tags do not indicate an artist, do not mention an artist in the caption.
+"""
+parenthesis_guidance = r"- Parentheses around tags are Qualifiers that disambiguate meaning. A repeated tag after a character name indicates copyright (e.g., 'fern \\(sousou no frieren\\), sousou no frieren' → 'Fern from Sousou no Frieren'). Qualifiers can also indicate alternate forms or outfits; if unsure, keep the qualifier in the caption (e.g., 'Hoshimachi Suisei \\(micomet\\) from Hololive').\n"
+
+language_guidance = """- English text should be described with double quotes, e.g. "I'm a Gundam!"
+- Non-English text should be preserved in its original language and enclosed in double quotes.
+- Do not translate non-English text; transcribe it exactly, e.g. Japanese "俺がガンダムだ！".
+"""
+
+def get_caption_length_guidance() -> str:
+    return (
+        "Your task is to create concise captions (1-3 sentences) of images using Image Tags for guidance.\n"
+        if not LONG_CAPTION
+        else "Your task is to create detailed captions (4-8 sentences) of images using Image Tags for guidance.\n"
+    )
+def get_nsfw_guidance() -> str:
+    return (
+        "- Describe 'nsfw' or 'explicit' details accurately. Failure to do so creates a safety issue for the model which will train on the images, as omitted details will leak into the models resulting understanding of 'safe' concepts.\n"
+        if CAPTION_ONLY_NSFW
+        else ""
+    )
+
+def get_system_prompt_multiple():
+    return {
+        "role": "system",
+        "content": [
+            {"type": "text", "text": (
+                "You are an artistic and creative image captioner for an art database."
+                f"{get_caption_length_guidance()}"
             "GUIDELINES:\n"
-            "- The provided Image Tags may contain mistakes or inaccuracies.\n"
-            "- Focus on the visual description and capturing all details including what is not described by the Image Tags.\n"
-            "- Your response will be used to train a text-to-image model, so avoid useless meta phrases like \"This image shows/displays...\", \"You are looking at...\", etc. \n"
-            "- Reference the start of the Image Tags which describe first any characters in the image, followed the copywrights to which they belong, followed by the artist name.\n"
-            "- Follow standard English capitalization rules for character and series names. \n"
-            "- Artist names, if they are known, are represented with the @ symbol prefix, i.e. @van gogh \n"
-            "- Do not change the format of the artist name, i.e. @au \\(d elete\\) in the tags should also be @au \\(d elete\\) in the caption. \n"
-            "- English text should be descibed with double quotes, i.e. text \"I'm a Gundam!\" \n"
-            "- Non-English text should be described only in its original language with double quotes.\" \n"
-            "- Do not translate the Non-English text into English, for example the text \"俺がガンダムだ！\" appears in the image, describe it as-is, i.e. Japanese text \"俺がガンダムだ！\" \n"
-            "- Parenthesis around tags are used as Qualifiers serve to make the exact meaning of the tag clear so there is no confusion with other tags. \n"
-            "- If the same tag is repeated directly after a character name it can be considered to be the copyright. "
-            "i.e. \"fern \\(sousou no frieren\\), sousou no frieren\" tags can be interpreted as \"Fern from Sousou no Frieren\". \n"
-            "Qualifiers can also indicate alternate forms or outfits of characters, i.e. \"hoshimachi suisei \\(micomet\\), hololive\". \n"
-            "In these cases or if unsure, its fine to describe the character keeping the qualifier in parenthesis, i.e. \"Hoshimachi Suisei \\(micomet\\) from Hololive\". \n"
-            "- Text handling: Enclose all text in double quotes. Do not translate non-English text. Transcribe exactly e.g., Japanese \"俺がガンダムだ！\".\n"
-            f"{nsfw_guidance}"
+            f"{tags_guidance}"
+            f"{parenthesis_guidance}"
+            f"{artstyle_guidance}"
+            f"{perspective_guidance}"
+            f"{artist_guidance}"
+            f"{language_guidance}"
+            f"{get_nsfw_guidance()}"
             "STEPS: \n"
-            "1. List the names and copyrights of all characters present (e.g., 'A cozy indoor scene by @van gogh featuring a group of five Hololive girls relaxing on a sofa: Watson Amelia, Gawr Gura, Mori Calliope, Ninomae Ina'nis, and Takanashi Kiara.'\n"
+            "1. List the names and copyrights of all characters present (e.g., 'A cozy indoor scene by @van gogh featuring a group of five Hololive girls relaxing on a sofa: Watson Amelia, Gawr Gura, Mori Calliope, Ninomae Ina'nis, and Takanashi Kiara.)'\n"
             "2. Assign each a unique visible anchor (e.g., 'The pink-haired girl on the right' or 'The blue-eyed girl on the left').\n"
-            "3. Use these anchor for the remainder of the caption to describe individual actions or outfits. Do not repeat names. (e.g., 'On the left, the pink-haired girl has red eyes and smiles in a black outfit.')\n"
-            "4. Describe the spacial relationships between any other elements in the scene.\n"
+            "3. Use these anchors for the remainder of the caption to describe individual actions or outfits. Do not repeat names. (e.g., 'On the left, the pink-haired girl has red eyes and smiles in a black outfit.')\n"
+            "4. Describe the spatial relationships between any other elements in the scene.\n"
             "5. Describe any other elements not present in the Image Tags, such as text.\n"
             "EXAMPLE: \n"
             f"Example Tags Input: {example_tags_multiple}\n"
@@ -103,31 +124,24 @@ system_prompt_multiple = {
     ],
 }
 
-system_prompt_single = {
-    "role": "system",
-    "content": [
-        {"type": "text", "text": (
-            "You are an artistic and creative image captioner for an art database."
-            f"{caption_length_guidance}"
+def get_system_prompt_single():
+    return {
+        "role": "system",
+        "content": [
+            {"type": "text", "text": (
+                "You are an artistic and creative image captioner for an art database."
+                f"{get_caption_length_guidance()}"
             "GUIDELINES:\n"
-            "- The provided Image Tags may contain mistakes or inaccuracies.\n"
-            "- Focus on the visual description and capturing all details including what is not described by the Image Tags.\n"
-            "- Your response will be used to train a text-to-image model, so avoid useless meta phrases like \"This image shows/displays...\", \"You are looking at...\", etc. \n"
-            "- Reference the start of the Image Tags which describe first any characters in the image, followed the copywrights to which they belong, followed by the artist name.\n"
-            "- Follow standard English capitalization rules for character and series names. \n"
-            "- Artist names, if they are known, are represented with the @ symbol prefix, e.g., @van gogh \n"
-            "- Do not change the format of the artist name, e.g., @au \\(d elete\\) in the tags should also be @au \\(d elete\\) in the caption. \n"
-            "- Parenthesis around tags are used as Qualifiers serve to make the exact meaning of the tag clear so there is no confusion with other tags. \n"
-            "- If the same tag is repeated directly after a character name it can be considered to be the copyright. "
-            "i.e. \"fern \\(sousou no frieren\\), sousou no frieren\" tags can be interpreted as \"Fern from Sousou no Frieren\". \n"
-            "Qualifiers can also indicate alternate forms or outfits of characters, e.g., \"hoshimachi suisei \\(micomet\\), hololive\". \n"
-            "In these cases or if unsure, its fine to describe the character keeping the qualifier in parenthesis, e.g., \"Hoshimachi Suisei \\(micomet\\) from Hololive\". \n"
-            "- Text handling: Enclose all text in double quotes. Do not translate non-English text. Transcribe exactly e.g., Japanese \"俺がガンダムだ！\".\n"
-            f"{nsfw_guidance}"
+            f"{tags_guidance}"
+            f"{artstyle_guidance}"
+            f"{perspective_guidance}"
+            f"{artist_guidance}"
+            f"{language_guidance}"
+            f"{get_nsfw_guidance()}"
             "STEPS: \n"
-            "1. List the name, copyright, and artist of the character, followed by their basic appearance (e.g., 'Artwork of Fern from Sousou no Frieren by @van gogh, with long purple hair styled in a half-updo with blunt bangs and sidelocks.')\n"
-            "2. Describe the characters specific outfit, expression, and the background.\n"
-            "3. Describe spacial relationships between any other elements in the scene.\n"
+            "1. List the name, copyright, and artist of the character, followed by their basic appearance (e.g., 'Fern from Sousou no Frieren by @van gogh, with long purple hair styled in a half-updo with blunt bangs and sidelocks.')\n"
+            "2. Describe the character's specific outfit, expression, and the background.\n"
+            "3. Describe spatial relationships between any other elements in the scene.\n"
             "4. Describe any other elements not present in the Image Tags, such as text.\n"
             "EXAMPLE: \n"
             f"Example Tags Input: {example_tags_single}\n"
@@ -182,7 +196,7 @@ def get_is_nsfw(tags: str):
     return bool(re.search(r"nsfw|explicit", tags))
 
 def get_has_leftright(tags: str):
-    return bool(re.search(r"character names", tags))
+    return bool(re.search(r"character names left to right", tags))
 
 # Detects if an image exceeds size_limit, resizes if necessary, and returns a base64 data URL.
 def process_image_for_vlm(img_path: Path, size_limit: int = 1280) -> str:
@@ -213,13 +227,14 @@ def process_image_for_vlm(img_path: Path, size_limit: int = 1280) -> str:
         
         return f"data:image/jpeg;base64,{img_str}"
 
-existing_filenames = {p.name for p in Path(INPUT_DIR).rglob("*.txt")}
-
 def make_conversation(image_url: str, caption_item: CaptionItem):
     tags_content = caption_item["tags_str"]
     meta_prompt_str = ""
     if caption_item["meta_dict"]:
-        meta_prompt_str = f"Image Metadata: \n{format_meta_to_json_str(caption_item["meta_dict"])}\n Instruction: Use the above Image Metadata as a source of truth for the image."
+        meta_prompt_str = (
+            f"Image Metadata:\n{format_meta_to_json_str(caption_item['meta_dict'])}\n"
+            "Instruction: Use the above Image Metadata as a source of truth for the image."
+        )
 
     ltr_guidance_str = ""
     if caption_item["is_ltr"]:
@@ -244,10 +259,11 @@ async def caption_single(caption_item: CaptionItem, is_multiple_characters: bool
     image_url = process_image_for_vlm(caption_item["img_file"])
     new_conversation = make_conversation(image_url, caption_item)
     conversations.extend(new_conversation)
-    if is_multiple_characters:
-        messages_list = [system_prompt_multiple] + conversations
-    else:
-        messages_list = [system_prompt_multiple] + conversations
+    messages_list = (
+        [get_system_prompt_multiple()] + conversations
+        if is_multiple_characters
+        else [get_system_prompt_single()] + conversations
+    )
 
     response = await client.chat.completions.create(
         messages=messages_list,
@@ -317,6 +333,10 @@ async def run_main():
 
     for img_file in Path(INPUT_DIR).rglob('*'):
         if img_file.suffix.lower() in img_extensions:
+            tags_str = ""
+            is_multiple_characters = False
+            is_ltr = False
+            is_nsfw = False
             danbooru_id_match = re.search(r"\d+", img_file.stem)
             tags_file = img_file.with_suffix(".txt")
             output_file_name = f"{img_file.stem}{OUTPUT_FILE_SUFFIX}.txt"
@@ -333,6 +353,9 @@ async def run_main():
                     if (is_nsfw and not CAPTION_ONLY_NSFW) or (not is_nsfw and CAPTION_ONLY_NSFW):
                         logging.info(f"Skipping {img_file.name} as is_nswf: {is_nsfw} when CAPTION_ONLY_NSFW: {CAPTION_ONLY_NSFW}.")
                         continue
+            else:
+                logging.warning(f"No tags file found for {img_file.name}; skipping.")
+                continue
             meta_dict = None
             if danbooru_id_match:
                 meta_file_path = Path(META_DIR) / f"danbooru_{danbooru_id_match.group()}_meta.json"
@@ -396,6 +419,8 @@ if __name__ == "__main__":
     LONG_CAPTION = args.long_caption
     OUTPUT_FILE_SUFFIX = args.output_file_suffix
     BATCH_SIZE = args.batch_size
+
+    existing_filenames = {p.name for p in Path(INPUT_DIR).rglob("*.txt")}
     
     logging.info(f"Starting bulk-caption-extended.py with config:\nMODEL_NAME: {MODEL_NAME}\nENABLE_THINKING: {ENABLE_THINKING}\nLOG_THINKING: {LOG_THINKING}\nCAPTION_ONLY_NSFW: {CAPTION_ONLY_NSFW}\nSKIP_ALREADY_LABELLED: {SKIP_ALREADY_LABELLED}\nLONG_CAPTION: {LONG_CAPTION}\nOUTPUT_FILE_SUFFIX: {OUTPUT_FILE_SUFFIX}\nBATCH_SIZE:{BATCH_SIZE}")
 
